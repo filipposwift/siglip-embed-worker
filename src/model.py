@@ -1,7 +1,8 @@
 import torch
 import numpy as np
+import os
 from transformers import AutoProcessor, AutoModel
-from typing import List
+from typing import List, Optional
 from PIL import Image
 
 MODEL_NAME = "google/siglip2-large-patch16-512"
@@ -9,18 +10,65 @@ MODEL_NAME = "google/siglip2-large-patch16-512"
 # Device sempre CUDA - il pod RunPod viene attivato con GPU NVIDIA (4090 o superiore)
 device = torch.device("cuda")
 
+# Path cache RunPod per modelli cached
+RUNPOD_CACHE_DIR = "/runpod-volume/huggingface-cache/hub"
+
 # Carica modello e processor una sola volta (variabili globali)
-# Il modello viene scaricato automaticamente da Hugging Face al primo utilizzo
 processor = None
 model = None
 
 
+def find_cached_model_path(model_name: str) -> Optional[str]:
+    """
+    Cerca il modello nella cache di RunPod.
+    
+    I modelli cached sono memorizzati in /runpod-volume/huggingface-cache/hub/
+    seguendo la struttura: models--ORG--MODEL/snapshots/VERSION_HASH/
+    
+    Args:
+        model_name: Nome del modello (es. "google/siglip2-large-patch16-512")
+        
+    Returns:
+        Path completo al modello cached se trovato, None altrimenti
+    """
+    # Converti formato: "google/siglip2-large-patch16-512" -> "models--google--siglip2-large-patch16-512"
+    cache_name = model_name.replace("/", "--")
+    snapshots_dir = os.path.join(RUNPOD_CACHE_DIR, f"models--{cache_name}", "snapshots")
+    
+    if os.path.exists(snapshots_dir):
+        snapshots = os.listdir(snapshots_dir)
+        if snapshots:
+            # Restituisci il path al primo snapshot (di solito c'è solo uno)
+            model_path = os.path.join(snapshots_dir, snapshots[0])
+            print(f"✅ Modello cached trovato in: {model_path}")
+            return model_path
+    
+    return None
+
+
 def _load_model():
-    """Carica il modello e il processor se non sono già stati caricati."""
+    """
+    Carica il modello e il processor se non sono già stati caricati.
+    
+    Cerca prima nella cache di RunPod (se configurato come cached model),
+    altrimenti scarica da Hugging Face.
+    """
     global processor, model
     if processor is None or model is None:
-        processor = AutoProcessor.from_pretrained(MODEL_NAME)
-        model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+        # Cerca prima nella cache di RunPod
+        cached_path = find_cached_model_path(MODEL_NAME)
+        
+        if cached_path:
+            # Usa il modello cached (cold start molto più veloce)
+            print(f"📦 Caricamento modello da cache RunPod: {cached_path}")
+            processor = AutoProcessor.from_pretrained(cached_path)
+            model = AutoModel.from_pretrained(cached_path).to(device)
+        else:
+            # Fallback: scarica da Hugging Face (più lento al primo utilizzo)
+            print(f"🌐 Modello non trovato in cache, download da Hugging Face: {MODEL_NAME}")
+            processor = AutoProcessor.from_pretrained(MODEL_NAME)
+            model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+        
         model.eval()
     return processor, model
 
