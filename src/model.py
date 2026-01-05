@@ -94,12 +94,21 @@ def encode_images(pil_images: List[Image.Image]) -> np.ndarray:
     proc, mdl = _load_model()
     
     # Preprocessa le immagini in batch
+    # SigLIP2 processor genera solo pixel_values (non input_ids)
     inputs = proc(images=pil_images, return_tensors="pt", padding=True)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
+    # Filtra solo le chiavi necessarie per il modello vision
+    # Rimuovi eventuali chiavi non supportate (come input_ids se presenti)
+    pixel_values = inputs.get("pixel_values")
+    if pixel_values is None:
+        raise ValueError("Processor non ha generato pixel_values. Verifica che le immagini siano valide.")
+    
+    # Passa solo pixel_values al modello
+    pixel_values = pixel_values.to(device)
     
     # Forward pass senza calcolo gradienti
     with torch.no_grad():
-        outputs = mdl(**inputs)
+        outputs = mdl(pixel_values=pixel_values)
         # SigLIP2 restituisce image_embeds direttamente
         image_embeds = outputs.image_embeds
     
