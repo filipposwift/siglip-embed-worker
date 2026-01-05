@@ -8,20 +8,21 @@ on:
     # Non creare release per modifiche a file di workflow o documentazione
     paths-ignore:
       - '**.md'
-      - '.github/**'
+      - '.github/workflows/**'
+      - '.gitignore'
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Necessario per leggere tutti i tag
-      
+          fetch-depth: 0 # Necessario per leggere tutti i tag
+
       - name: Get latest tag
         id: get_tag
         run: |
@@ -29,50 +30,49 @@ jobs:
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
           echo "Ultimo tag trovato: $LAST_TAG"
-      
+
       - name: Calculate next version
         id: next_version
         run: |
           LAST_TAG="${{ steps.get_tag.outputs.last_tag }}"
           # Rimuovi il prefisso 'v' se presente
           VERSION=${LAST_TAG#v}
-          
+
           # Estrai major, minor, patch
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          
+
           # Incrementa patch version
           PATCH=$((PATCH + 1))
-          
+
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           NEW_TAG="v$NEW_VERSION"
-          
+
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
           echo "Nuova versione: $NEW_TAG"
-      
+
       - name: Create Git tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.next_version.outputs.new_tag }}" -m "Release ${{ steps.next_version.outputs.new_tag }}"
           git push origin "${{ steps.next_version.outputs.new_tag }}"
-      
+
       - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.next_version.outputs.new_tag }}
-          release_name: Release ${{ steps.next_version.outputs.new_tag }}
+          name: Release ${{ steps.next_version.outputs.new_tag }}
           body: |
             ## Changes in ${{ steps.next_version.outputs.new_tag }}
-            
+
             Auto-generated release from commit ${{ github.sha }}
-            
+
             ### Commit
             - **SHA**: ${{ github.sha }}
             - **Message**: ${{ github.event.head_commit.message }}
             - **Author**: ${{ github.event.head_commit.author.name }}
           draft: false
           prerelease: false
-
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
