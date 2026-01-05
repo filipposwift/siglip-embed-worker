@@ -62,14 +62,16 @@ def _load_model():
             # Usa il modello cached (cold start molto più veloce)
             print(f"📦 Caricamento modello da cache RunPod: {cached_path}")
             processor = AutoProcessor.from_pretrained(cached_path)
-            model = AutoModel.from_pretrained(cached_path).to(device)
+            # Usa device_map="auto" come nell'esempio ufficiale Hugging Face
+            model = AutoModel.from_pretrained(cached_path, device_map="auto").eval()
         else:
             # Fallback: scarica da Hugging Face (più lento al primo utilizzo)
             print(f"🌐 Modello non trovato in cache, download da Hugging Face: {MODEL_NAME}")
             processor = AutoProcessor.from_pretrained(MODEL_NAME)
-            model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+            # Usa device_map="auto" come nell'esempio ufficiale Hugging Face
+            model = AutoModel.from_pretrained(MODEL_NAME, device_map="auto").eval()
         
-        model.eval()
+        # model.eval() già chiamato in from_pretrained con device_map="auto"
     return processor, model
 
 
@@ -94,23 +96,25 @@ def encode_images(pil_images: List[Image.Image]) -> np.ndarray:
     proc, mdl = _load_model()
     
     # Preprocessa le immagini in batch
-    # SigLIP2 processor genera solo pixel_values (non input_ids)
+    # Seguendo l'esempio ufficiale Hugging Face:
+    # https://huggingface.co/google/siglip2-large-patch16-512
     inputs = proc(images=pil_images, return_tensors="pt", padding=True)
     
-    # Filtra solo le chiavi necessarie per il modello vision
-    # Rimuovi eventuali chiavi non supportate (come input_ids se presenti)
-    pixel_values = inputs.get("pixel_values")
-    if pixel_values is None:
-        raise ValueError("Processor non ha generato pixel_values. Verifica che le immagini siano valide.")
-    
-    # Passa solo pixel_values al modello
-    pixel_values = pixel_values.to(device)
+    # Sposta tutti gli input sul device del modello (come nell'esempio ufficiale)
+    # device_map="auto" gestisce automaticamente il device, quindi usiamo model.device
+    inputs = {k: v.to(mdl.device) for k, v in inputs.items()}
     
     # Forward pass senza calcolo gradienti
+    # Usa get_image_features() passando **inputs (tutto il dict) come nell'esempio ufficiale
+    # Questo è il metodo corretto per estrarre solo embedding immagini da SigLIP2
     with torch.no_grad():
-        outputs = mdl(pixel_values=pixel_values)
-        # SigLIP2 restituisce image_embeds direttamente
-        image_embeds = outputs.image_embeds
+        if hasattr(mdl, 'get_image_features'):
+            # Metodo ufficiale: passa **inputs (tutto il dict) come nell'esempio Hugging Face
+            image_embeds = mdl.get_image_features(**inputs)
+        else:
+            # Fallback: se get_image_features non è disponibile, prova altri metodi
+            # Questo non dovrebbe essere necessario per SigLIP2
+            raise ValueError("get_image_features() non disponibile. Verifica la versione di transformers.")
     
     # Converti in numpy array float32
     embeddings = image_embeds.cpu().numpy().astype(np.float32)
