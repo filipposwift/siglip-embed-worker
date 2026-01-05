@@ -1,0 +1,8 @@
+transformers
+accelerate
+runpod
+pillow
+opencv-python-headless
+numpy
+requests
+
