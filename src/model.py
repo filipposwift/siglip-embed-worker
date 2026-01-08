@@ -128,3 +128,56 @@ def encode_images(pil_images: List[Image.Image]) -> np.ndarray:
     
     return embeddings
 
+
+def encode_texts(texts: List[str]) -> np.ndarray:
+    """
+    Genera embedding per una lista di testi usando SigLIP2.
+    
+    Utilizza il text encoder di SigLIP2 per generare embedding di testo nello stesso
+    spazio vettoriale delle immagini, permettendo similarity search cross-modal.
+    
+    Gli embedding vengono normalizzati L2 per ottimizzare la similarity search.
+    Con embedding normalizzati, il dot product è equivalente alla cosine similarity.
+    
+    Args:
+        texts: Lista di stringhe di testo
+        
+    Returns:
+        np.ndarray di shape (N, D) dove N è il numero di testi e D è la dimensione dell'embedding.
+        Gli embedding sono normalizzati L2 (norma unitaria).
+    """
+    # Carica modello se necessario
+    proc, mdl = _load_model()
+    
+    # Preprocessa i testi in batch
+    # Seguendo l'esempio ufficiale Hugging Face per SigLIP2
+    inputs = proc(text=texts, return_tensors="pt", padding=True)
+    
+    # Sposta tutti gli input sul device del modello (come nell'esempio ufficiale)
+    # device_map="auto" gestisce automaticamente il device, quindi usiamo model.device
+    inputs = {k: v.to(mdl.device) for k, v in inputs.items()}
+    
+    # Forward pass senza calcolo gradienti
+    # Usa get_text_features() passando **inputs (tutto il dict) come nell'esempio ufficiale
+    # Questo è il metodo corretto per estrarre solo embedding testo da SigLIP2
+    with torch.no_grad():
+        if hasattr(mdl, 'get_text_features'):
+            # Metodo ufficiale: passa **inputs (tutto il dict) come nell'esempio Hugging Face
+            text_embeds = mdl.get_text_features(**inputs)
+        else:
+            # Fallback: se get_text_features non è disponibile, prova altri metodi
+            # Questo non dovrebbe essere necessario per SigLIP2
+            raise ValueError("get_text_features() non disponibile. Verifica la versione di transformers.")
+    
+    # Converti in numpy array float32
+    embeddings = text_embeds.cpu().numpy().astype(np.float32)
+    
+    # Normalizzazione L2 per similarity search (cosine similarity)
+    # Normalizza ogni vettore lungo l'asse delle features (axis=1)
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    # Evita divisione per zero (vettori nulli)
+    norms = np.where(norms == 0, 1.0, norms)
+    embeddings = embeddings / norms
+    
+    return embeddings
+

@@ -1,11 +1,13 @@
-# SigLIP2 Image Embedding Worker - RunPod Serverless
+# SigLIP2 Embedding Worker - RunPod Serverless
 
-Endpoint RunPod Serverless per generare embedding di immagini usando il modello SigLIP2, ottimizzato per similarity search su costumi da bagno con pattern e texture complessi.
+Endpoint RunPod Serverless per generare embedding di immagini e testo usando il modello SigLIP2, ottimizzato per similarity search cross-modal (testo-immagini) su costumi da bagno con pattern e texture complessi.
 
 ## 🎯 Caratteristiche
 
 - **Modello**: `google/siglip2-large-patch16-512` (risoluzione 512x512 per massimi dettagli)
 - **Embedding normalizzati L2**: Pronti per cosine similarity search
+- **Modalità duali**: Supporta embedding sia di immagini che di testo nello stesso spazio vettoriale
+- **Similarity search cross-modal**: Cerca immagini usando query testuali (es. "bikini top with floral pattern")
 - **Batch processing**: Elabora multiple immagini in parallelo
 - **Gestione errori robusta**: Continua l'elaborazione anche se alcune immagini falliscono
 - **Ottimizzato per GPU**: Utilizza CUDA su GPU NVIDIA (4090 o superiore)
@@ -39,11 +41,13 @@ siglip-embed-worker/
 **Scelta**: `google/siglip2-large-patch16-512` invece di `siglip2-base-patch16-256`
 
 **Motivazione**:
+
 - **Dettagli superiori**: Risoluzione 512x512 cattura pattern e texture più fini
 - **Similarity search migliore**: Embedding più ricchi e discriminanti per distinguere costumi simili
 - **Caso d'uso specifico**: Per costumi da bagno con pattern complessi, i dettagli extra sono cruciali
 
 **Trade-off**:
+
 - ✅ Qualità embedding significativamente migliore
 - ⚠️ Modello più pesante (~2-4x più lento, più memoria)
 - ⚠️ Costo RunPod leggermente superiore
@@ -53,11 +57,13 @@ siglip-embed-worker/
 **Scelta**: Resize intermedio a max 2048px prima del processor SigLIP2
 
 **Motivazione**:
+
 - **Protezione memoria**: Immagini enormi (4000x6000) vengono ridotte a ~8MB invece di 69MB
 - **Dettagli massimi**: Per immagini tipiche (~2700px) perdita solo ~24% vs 62% con 1024px
 - **Zero perdita per immagini piccole**: Immagini < 2048px non vengono toccate
 
 **Flusso**:
+
 ```
 Immagine originale (es. 1800x2699 o 4000x6000)
     ↓
@@ -69,6 +75,7 @@ Embedding normalizzato L2
 ```
 
 **Analisi**:
+
 - Immagine tipica 1800x2699: 13.9MB → 8MB (perdita 24%)
 - Immagine grande 4000x6000: 69MB → 8MB (risparmio 88%)
 
@@ -77,12 +84,14 @@ Embedding normalizzato L2
 **Scelta**: Normalizzare tutti gli embedding a norma unitaria (L2)
 
 **Motivazione**:
+
 - **Cosine similarity = dot product**: Con embedding normalizzati, `np.dot(emb1, emb2)` = cosine similarity
 - **Performance database vettoriali**: Molti database (Pinecone, Weaviate, Qdrant) ottimizzano per vettori normalizzati
 - **Stabilità numerica**: Riduce problemi di overflow/underflow
 - **Best practice**: Standard per embedding (CLIP, SigLIP, ecc.)
 
 **Implementazione**:
+
 ```python
 norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
 embeddings = embeddings / norms  # Norma unitaria
@@ -93,11 +102,13 @@ embeddings = embeddings / norms  # Norma unitaria
 **Scelta**: Caricare modello e processor una sola volta (variabili globali)
 
 **Motivazione**:
+
 - **Performance**: Evita ricaricamento a ogni richiesta (modello ~1-2GB)
 - **Memoria**: Un solo modello in memoria invece di multipli
 - **Velocità**: Prima richiesta più lenta (download modello), successive molto veloci
 
 **Implementazione**:
+
 ```python
 processor = None
 model = None
@@ -113,6 +124,7 @@ def _load_model():
 **Scelta**: `device = torch.device("cuda")` senza fallback CPU
 
 **Motivazione**:
+
 - **RunPod garantisce GPU**: I pod vengono sempre attivati con GPU NVIDIA (4090 o superiore)
 - **Performance**: CUDA è 10-100x più veloce per inferenza deep learning
 - **Semplicità**: Nessun codice condizionale necessario
@@ -122,11 +134,13 @@ def _load_model():
 **Scelta**: Continuare l'elaborazione anche se alcune immagini falliscono
 
 **Motivazione**:
+
 - **Resilienza**: Un URL non valido non blocca l'intero batch
 - **Informazioni utili**: Restituisce warning con dettagli degli URL falliti
 - **UX migliore**: L'utente riceve embedding per immagini valide + info su quelle fallite
 
 **Implementazione**:
+
 ```python
 for url in image_urls:
     try:
@@ -166,6 +180,7 @@ for url in image_urls:
 ### 3. Build e Deploy
 
 RunPod costruirà automaticamente l'immagine Docker dal Dockerfile. Il primo deploy può richiedere 5-10 minuti per:
+
 - Build immagine Docker
 - Download modello SigLIP2 da Hugging Face (~1-2GB)
 - Setup ambiente
@@ -178,12 +193,15 @@ RunPod costruirà automaticamente l'immagine Docker dal Dockerfile. Il primo dep
 POST https://api.runpod.ai/v2/{endpoint_id}/runsync
 ```
 
-### Richiesta
+### Modalità Immagini (mode="images")
+
+#### Richiesta
 
 ```json
 {
   "input": {
-    "images": [
+    "mode": "images",
+    "payload": [
       "https://example.com/image1.jpg",
       "https://example.com/image2.png",
       "https://example.com/image3.jpg"
@@ -192,10 +210,11 @@ POST https://api.runpod.ai/v2/{endpoint_id}/runsync
 }
 ```
 
-### Risposta di Successo
+#### Risposta di Successo
 
 ```json
 {
+  "status": "OK",
   "embeddings": [
     {
       "image_url": "https://example.com/image1.jpg",
@@ -208,6 +227,38 @@ POST https://api.runpod.ai/v2/{endpoint_id}/runsync
   ]
 }
 ```
+
+### Modalità Testo (mode="text")
+
+#### Richiesta
+
+```json
+{
+  "input": {
+    "mode": "text",
+    "payload": {
+      "text": "bikini top with floral pattern",
+      "id": "query_1"
+    }
+  }
+}
+```
+
+#### Risposta di Successo
+
+```json
+{
+  "status": "OK",
+  "embeddings": [
+    {
+      "text_id": "query_1",
+      "vector": [0.123, 0.456, 0.789, ...]
+    }
+  ]
+}
+```
+
+**Nota**: Gli embedding di testo e immagini sono nello stesso spazio vettoriale (stessa dimensione D) e possono essere usati per similarity search cross-modal. Puoi confrontare un embedding di testo con embedding di immagini usando cosine similarity.
 
 ### Risposta con Errori Parziali
 
@@ -231,7 +282,7 @@ POST https://api.runpod.ai/v2/{endpoint_id}/runsync
 }
 ```
 
-### Esempio con cURL
+### Esempio con cURL - Immagini
 
 ```bash
 curl -X POST https://api.runpod.ai/v2/{endpoint_id}/runsync \
@@ -239,14 +290,32 @@ curl -X POST https://api.runpod.ai/v2/{endpoint_id}/runsync \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
     "input": {
-      "images": [
+      "mode": "images",
+      "payload": [
         "https://www.samelosangeles.com/cdn/shop/files/Same1260.jpg"
       ]
     }
   }'
 ```
 
-### Esempio con Python
+### Esempio con cURL - Testo
+
+```bash
+curl -X POST https://api.runpod.ai/v2/{endpoint_id}/runsync \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "input": {
+      "mode": "text",
+      "payload": {
+        "text": "bikini top with floral pattern",
+        "id": "query_1"
+      }
+    }
+  }'
+```
+
+### Esempio con Python - Immagini
 
 ```python
 import requests
@@ -262,7 +331,8 @@ response = requests.post(
     },
     json={
         "input": {
-            "images": [
+            "mode": "images",
+            "payload": [
                 "https://example.com/image1.jpg",
                 "https://example.com/image2.jpg"
             ]
@@ -276,9 +346,42 @@ for embedding in result["embeddings"]:
     print(f"Vector dimension: {len(embedding['vector'])}")
 ```
 
+### Esempio con Python - Testo
+
+```python
+import requests
+
+endpoint_id = "your-endpoint-id"
+api_key = "your-api-key"
+
+response = requests.post(
+    f"https://api.runpod.ai/v2/{endpoint_id}/runsync",
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    },
+    json={
+        "input": {
+            "mode": "text",
+            "payload": {
+                "text": "bikini top with floral pattern",
+                "id": "query_1"
+            }
+        }
+    }
+)
+
+result = response.json()
+for embedding in result["embeddings"]:
+    print(f"Text ID: {embedding['text_id']}")
+    print(f"Vector dimension: {len(embedding['vector'])}")
+```
+
 ## 🔍 Similarity Search
 
-Gli embedding sono normalizzati L2, quindi puoi usare **dot product** per cosine similarity:
+Gli embedding sono normalizzati L2, quindi puoi usare **dot product** per cosine similarity.
+
+### Similarity Search Immagine-Immagine
 
 ```python
 import numpy as np
@@ -295,6 +398,63 @@ from sklearn.metrics.pairwise import cosine_similarity
 similarity = cosine_similarity([emb1], [emb2])[0][0]
 ```
 
+### Similarity Search Cross-Modal (Testo-Immagine)
+
+Gli embedding di testo e immagini sono nello stesso spazio vettoriale, quindi puoi confrontarli direttamente:
+
+```python
+import numpy as np
+import requests
+
+endpoint_id = "your-endpoint-id"
+api_key = "your-api-key"
+
+# 1. Genera embedding per una query testuale
+text_response = requests.post(
+    f"https://api.runpod.ai/v2/{endpoint_id}/runsync",
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    },
+    json={
+        "input": {
+            "mode": "text",
+            "payload": {
+                "text": "bikini top with floral pattern",
+                "id": "query_1"
+            }
+        }
+    }
+)
+text_embedding = np.array(text_response.json()["embeddings"][0]["vector"])
+
+# 2. Genera embedding per immagini
+images_response = requests.post(
+    f"https://api.runpod.ai/v2/{endpoint_id}/runsync",
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    },
+    json={
+        "input": {
+            "mode": "images",
+            "payload": [
+                "https://example.com/image1.jpg",
+                "https://example.com/image2.jpg"
+            ]
+        }
+    }
+)
+
+# 3. Calcola similarity tra testo e ogni immagine
+for img_embedding in images_response.json()["embeddings"]:
+    img_vector = np.array(img_embedding["vector"])
+    similarity = np.dot(text_embedding, img_vector)  # Cosine similarity
+    print(f"Image: {img_embedding['image_url']}, Similarity: {similarity:.4f}")
+```
+
+**Nota**: La similarity va da -1 (completamente diversi) a 1 (identici). Valori più alti indicano maggiore similarità semantica tra il testo e l'immagine.
+
 ## 📊 Specifiche Tecniche
 
 - **Dimensione embedding**: Dipende dal modello (tipicamente 768-1152 per SigLIP2 large)
@@ -310,6 +470,7 @@ similarity = cosine_similarity([emb1], [emb2])[0][0]
 **Causa**: Batch troppo grande o modello troppo pesante per la GPU
 
 **Soluzione**:
+
 - Riduci il numero di immagini per batch
 - Usa GPU con più VRAM (24GB+ invece di 16GB)
 
@@ -318,6 +479,7 @@ similarity = cosine_similarity([emb1], [emb2])[0][0]
 **Causa**: Modello non scaricato da Hugging Face
 
 **Soluzione**:
+
 - Verifica connessione internet nel container
 - Controlla che `MODEL_NAME` in `src/model.py` sia corretto
 - Il modello viene scaricato automaticamente al primo utilizzo
@@ -327,6 +489,7 @@ similarity = cosine_similarity([emb1], [emb2])[0][0]
 **Causa**: Possibile problema con normalizzazione L2
 
 **Soluzione**:
+
 - Verifica che gli embedding abbiano norma ~1.0
 - Controlla che non ci siano vettori nulli
 
@@ -342,4 +505,3 @@ similarity = cosine_similarity([emb1], [emb2])[0][0]
 - [RunPod Serverless Documentation](https://docs.runpod.io/serverless)
 - [SigLIP2 Paper](https://arxiv.org/abs/2502.14786)
 - [Hugging Face SigLIP2](https://huggingface.co/google/siglip2-large-patch16-512)
-
