@@ -5,4 +5,5 @@ pillow
 opencv-python-headless
 numpy
 requests
+hf_transfer
 

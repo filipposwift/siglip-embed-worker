@@ -135,6 +135,8 @@ def encode_texts(texts: List[str]) -> np.ndarray:
     
     Utilizza il text encoder di SigLIP2 per generare embedding di testo nello stesso
     spazio vettoriale delle immagini, permettendo similarity search cross-modal.
+
+    This is the correct method to extract text features from SigLIP2.
     
     Gli embedding vengono normalizzati L2 per ottimizzare la similarity search.
     Con embedding normalizzati, il dot product è equivalente alla cosine similarity.
