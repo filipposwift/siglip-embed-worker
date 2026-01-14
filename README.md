@@ -1,4 +1,4 @@
-# SigLIP2 Embedding Worker - RunPod Serverless
+# SigLIP2 Embedding Worker - RunPod Serverless - Test
 
 Endpoint RunPod Serverless per generare embedding di immagini e testo usando il modello SigLIP2, ottimizzato per similarity search cross-modal (testo-immagini) su costumi da bagno con pattern e texture complessi.
 
